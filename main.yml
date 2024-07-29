@@ -5,13 +5,15 @@
   vars:
     pg_password_file: /var/secrets/pg_pw.txt
     log_dir: /var/log/stage_5b
-    repo_url: "https://github.com/your_repo_devops_branch_url.git"
+    repo_url: "https://github.com/hngprojects/hng_boilerplate_golang_web.git"
     app_dir: /opt/stage_5b
     user: hng
     postgres_user: postgres
-    database_name: your_database_name
-    db_user: your_db_user
-    db_password: your_db_password
+    database_name: example_db
+    db_user: example_user
+    db_password: "securepassword123!"
+    app_port: 3000
+    go_version: "1.19" # Update to your Go version
 
   pre_tasks:
     - name: Create the hng user with sudo privileges
@@ -25,15 +27,35 @@
         name: "{{ item }}"
         state: present
         update_cache: yes
-      with_items:
+      loop:
         - git
-        - python3-pip
+        - wget
         - postgresql
         - postgresql-contrib
         - nginx
-        - rabbitmq-server
 
   tasks:
+    - name: Install Go
+      get_url:
+        url: "https://golang.org/dl/go{{ go_version }}.linux-amd64.tar.gz"
+        dest: "/tmp/go{{ go_version }}.linux-amd64.tar.gz"
+
+    - name: Extract Go
+      unarchive:
+        src: "/tmp/go{{ go_version }}.linux-amd64.tar.gz"
+        dest: "/usr/local"
+        remote_src: yes
+
+    - name: Set up Go environment variables
+      lineinfile:
+        path: /etc/profile
+        line: "export PATH=$PATH:/usr/local/go/bin"
+        create: yes
+        state: present
+
+    - name: Reload profile
+      command: source /etc/profile
+
     - name: Clone the DevOps branch repository
       git:
         repo: "{{ repo_url }}"
@@ -50,18 +72,25 @@
         group: "{{ user }}"
         state: directory
 
-    - name: Install application dependencies
-      pip:
-        requirements: "{{ app_dir }}/requirements.txt"
-      become: yes
-      become_user: "{{ user }}"
+    - name: Build the Golang application
+      command: "go build -o myapp main.go"
+      args:
+        chdir: "{{ app_dir }}"
+
+    - name: Ensure application is running on port 3000
+      command: "nohup ./myapp > /dev/null 2>&1 &"
+      args:
+        chdir: "{{ app_dir }}"
+        creates: "{{ app_dir }}/app.pid"
 
     - name: Configure PostgreSQL database
+      become_user: postgres
       postgresql_db:
         name: "{{ database_name }}"
         state: present
 
     - name: Ensure PostgreSQL user is present
+      become_user: postgres
       postgresql_user:
         name: "{{ db_user }}"
         password: "{{ db_password }}"
@@ -74,18 +103,6 @@
         owner: "{{ user }}"
         group: "{{ user }}"
         mode: "0600"
-
-    - name: Set up RabbitMQ
-      service:
-        name: rabbitmq-server
-        state: started
-        enabled: yes
-
-    - name: Ensure application is running on port 3000
-      command: "nohup python3 {{ app_dir }}/app.py > /dev/null 2>&1 &"
-      args:
-        chdir: "{{ app_dir }}"
-        creates: "{{ app_dir }}/app.pid"
 
     - name: Configure Nginx to reverse proxy to the application
       template:
@@ -105,10 +122,9 @@
         group: "{{ user }}"
 
     - name: Configure logging for the application
-      lineinfile:
-        path: "{{ app_dir }}/logging.conf"
-        create: yes
-        line: |
+      copy:
+        dest: "{{ app_dir }}/logging.conf"
+        content: |
           [loggers]
           keys=root
 
