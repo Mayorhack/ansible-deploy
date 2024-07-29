@@ -1,0 +1,144 @@
+---
+- hosts: hng
+  become: yes
+
+  vars:
+    pg_password_file: /var/secrets/pg_pw.txt
+    log_dir: /var/log/stage_5b
+    repo_url: "https://github.com/your_repo_devops_branch_url.git"
+    app_dir: /opt/stage_5b
+    user: hng
+    postgres_user: postgres
+    database_name: your_database_name
+    db_user: your_db_user
+    db_password: your_db_password
+
+  pre_tasks:
+    - name: Create the hng user with sudo privileges
+      user:
+        name: "{{ user }}"
+        state: present
+        groups: sudo
+
+    - name: Install required packages
+      apt:
+        name: "{{ item }}"
+        state: present
+        update_cache: yes
+      with_items:
+        - git
+        - python3-pip
+        - postgresql
+        - postgresql-contrib
+        - nginx
+        - rabbitmq-server
+
+  tasks:
+    - name: Clone the DevOps branch repository
+      git:
+        repo: "{{ repo_url }}"
+        dest: "{{ app_dir }}"
+        version: devops
+        force: yes
+      become: yes
+      become_user: "{{ user }}"
+
+    - name: Ensure the application directory is owned by hng user
+      file:
+        path: "{{ app_dir }}"
+        owner: "{{ user }}"
+        group: "{{ user }}"
+        state: directory
+
+    - name: Install application dependencies
+      pip:
+        requirements: "{{ app_dir }}/requirements.txt"
+      become: yes
+      become_user: "{{ user }}"
+
+    - name: Configure PostgreSQL database
+      postgresql_db:
+        name: "{{ database_name }}"
+        state: present
+
+    - name: Ensure PostgreSQL user is present
+      postgresql_user:
+        name: "{{ db_user }}"
+        password: "{{ db_password }}"
+        state: present
+
+    - name: Save PostgreSQL admin credentials to a file
+      copy:
+        dest: "{{ pg_password_file }}"
+        content: "postgres:{{ db_password }}"
+        owner: "{{ user }}"
+        group: "{{ user }}"
+        mode: "0600"
+
+    - name: Set up RabbitMQ
+      service:
+        name: rabbitmq-server
+        state: started
+        enabled: yes
+
+    - name: Ensure application is running on port 3000
+      command: "nohup python3 {{ app_dir }}/app.py > /dev/null 2>&1 &"
+      args:
+        chdir: "{{ app_dir }}"
+        creates: "{{ app_dir }}/app.pid"
+
+    - name: Configure Nginx to reverse proxy to the application
+      template:
+        src: nginx.conf.j2
+        dest: /etc/nginx/sites-available/default
+
+    - name: Reload Nginx
+      service:
+        name: nginx
+        state: reloaded
+
+    - name: Ensure log directories exist
+      file:
+        path: "{{ log_dir }}"
+        state: directory
+        owner: "{{ user }}"
+        group: "{{ user }}"
+
+    - name: Configure logging for the application
+      lineinfile:
+        path: "{{ app_dir }}/logging.conf"
+        create: yes
+        line: |
+          [loggers]
+          keys=root
+
+          [handlers]
+          keys=stdoutHandler,stderrHandler
+
+          [formatters]
+          keys=formatter
+
+          [logger_root]
+          level=DEBUG
+          handlers=stdoutHandler,stderrHandler
+
+          [handler_stdoutHandler]
+          class=StreamHandler
+          level=INFO
+          formatter=formatter
+          args=(open('{{ log_dir }}/out.log', 'a'),)
+
+          [handler_stderrHandler]
+          class=StreamHandler
+          level=ERROR
+          formatter=formatter
+          args=(open('{{ log_dir }}/error.log', 'a'),)
+
+          [formatter_formatter]
+          format=%(asctime)s - %(name)s - %(levelname)s - %(message)s
+
+  handlers:
+    - name: Restart Nginx
+      service:
+        name: nginx
+        state: restarted
