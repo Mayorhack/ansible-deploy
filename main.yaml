@@ -13,7 +13,7 @@
     db_user: example_user
     db_password: "securepassword123!"
     app_port: 3000
-    go_version: "1.19" # Update to your Go version
+    go_version: "1.19"
 
   pre_tasks:
     - name: Create the hng user with sudo privileges
@@ -37,8 +37,8 @@
   tasks:
     - name: Install Go
       get_url:
-        url: https://dl.google.com/go/go1.19.linux-amd64.tar.gz
-        dest: /tmp/go1.19.linux-amd64.tar.gz
+        url: "https://dl.google.com/go/go{{ go_version }}.linux-amd64.tar.gz"
+        dest: /tmp/go{{ go_version }}.linux-amd64.tar.gz
         timeout: 120
 
     - name: Extract Go
@@ -55,7 +55,7 @@
         state: present
 
     - name: Reload profile
-      shell: source /etc/profile
+      shell: . /etc/profile
       args:
         executable: /bin/bash
 
@@ -79,6 +79,7 @@
       command: "go build -o production_app main.go"
       args:
         chdir: "{{ app_dir }}"
+      become_user: "{{ user }}"
 
     - name: Create nonroot user and group
       user:
