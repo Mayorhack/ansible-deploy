@@ -7,7 +7,7 @@
     pg_password_file: /var/secrets/pg_pw.txt
     log_dir: /var/log/stage_5b
     repo_url: "https://github.com/hngprojects/hng_boilerplate_golang_web.git"
-    app_dir: /opt/stage_5b
+    app_dir: /home/stage_5b
     user: hng
     postgres_user: postgres
     database_name: example_db
