@@ -55,7 +55,7 @@
         state: present
 
     - name: Reload profile
-      command: source /etc/profile
+      shell: source /etc/profile
 
     - name: Clone the DevOps branch repository
       git:
@@ -74,15 +74,22 @@
         state: directory
 
     - name: Build the Golang application
-      command: "go build -o myapp main.go"
+      command: "go build -o production_app main.go"
       args:
         chdir: "{{ app_dir }}"
 
+    - name: Create nonroot user and group
+      user:
+        name: nonroot
+        group: nonroot
+        system: yes
+        create_home: no
+
     - name: Ensure application is running on port 3000
-      command: "nohup ./myapp > /dev/null 2>&1 &"
+      shell: "nohup ./production_app > /dev/null 2>&1 &"
       args:
         chdir: "{{ app_dir }}"
-        creates: "{{ app_dir }}/app.pid"
+      become_user: nonroot
 
     - name: Configure PostgreSQL database
       become_user: postgres
